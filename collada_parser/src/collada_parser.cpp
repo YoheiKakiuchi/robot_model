@@ -57,6 +57,7 @@
 #include <ros/ros.h>
 #include <collada_parser/collada_parser.h>
 #include <urdf_model/model.h>
+#include <urdf_sensor/sensor.h>
 
 #ifndef HAVE_MKSTEMPS
 #include <fstream>
@@ -600,7 +601,7 @@ protected:
         }
 
         _ExtractRobotManipulators(articulated_system);
-        _ExtractRobotAttachedSensors(articulated_system);
+        _ExtractRobotAttachedSensors(articulated_system, bindings);
         return true;
     }
 
@@ -1967,9 +1968,44 @@ protected:
     }
 
     /// \brief Extract Sensors attached to a Robot
-    void _ExtractRobotAttachedSensors(const domArticulated_systemRef as)
+    void _ExtractRobotAttachedSensors(const domArticulated_systemRef as, KinematicsSceneBindings& bindings)
     {
-        ROS_DEBUG("collada sensors not supported yet");
+        // implement here
+        if ( as->getExtra_array().getCount() > 0 ) return;
+
+        for(size_t ie = 0; ie < as->getExtra_array().getCount(); ++ie) {
+          domExtraRef pextra = as->getExtra_array()[ie];
+          // find element which type is attach_sensor and is attached to thisNode
+          if ( strcmp(pextra->getType(), "attach_sensor") == 0 ) {
+            std::string name = pextra->getAttribute("name");
+
+            domTechniqueRef tec = _ExtractOpenRAVEProfile(pextra->getTechnique_array());
+
+            if ( !!tec )  {
+              std::string sensor_url(tec->getChild("instance_sensor")->getAttribute("url"));
+              daeElementRef frame_origin = tec->getChild("frame_origin");
+
+              if ( sensor_url.size() > 0 ) {
+                daeElementRef domsensor = daeURI(*(tec->getChild("instance_sensor")),
+                                                 sensor_url).getElement();
+                std::string sensor_type = domsensor->getAttribute("type");
+                //domsensor->getAttribute("id");
+                // parse sensor
+              }
+
+              if (!! frame_origin) {
+                domLinkRef thislink = daeSafeCast<domLink>(daeSidRef(frame_origin->getAttribute("link"), as).resolve().elt);
+                thislink->getName();
+                thislink->getID();
+                //std::cerr << "Sensor " << pextra->getName() << " is attached to " << thisNode->getName() << " " << sensor_type << " " << sensor_url << std::endl;
+
+                domTranslateRef ptrans = daeSafeCast<domTranslate>(frame_origin->getChild("translate"));
+                domRotateRef prot = daeSafeCast<domRotate>(frame_origin->getChild("rotate"));
+
+              }
+            }
+          }
+        }
     }
 
     inline daeElementRef _getElementFromUrl(const daeURI &uri)
