@@ -70,6 +70,11 @@
 #define FOREACH(it, v) for(typeof((v).begin())it = (v).begin(); it != (v).end(); (it)++)
 #define FOREACHC FOREACH
 
+#define printPose(name, pose) \
+  ROS_WARN(name": %lf %lf %lf %lf %lf %lf %lf",               \
+           pose.position.x, pose.position.y, pose.position.z,           \
+           pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w); \
+
 namespace ColladaDOM150 { }
 
 namespace urdf {
@@ -593,12 +598,44 @@ protected:
                     bindings.AddAxisInfo(articulated_system->getKinematics()->getInstance_kinematics_model_array(), articulated_system->getKinematics()->getTechnique_common()->getAxis_info_array()[i], NULL);
                 }
             }
-
             for(size_t ik = 0; ik < articulated_system->getKinematics()->getInstance_kinematics_model_array().getCount(); ++ik) {
                 _ExtractKinematicsModel(articulated_system->getKinematics()->getInstance_kinematics_model_array()[ik],bindings);
             }
         }
-
+        // over write joint parameters by elements in instance_actuator
+        for(size_t ie = 0; ie < articulated_system->getExtra_array().getCount(); ++ie) {
+          domExtraRef pextra = articulated_system->getExtra_array()[ie];
+          if( strcmp(pextra->getType(), "attach_actuator") == 0 ) {
+            //std::string aname = pextra->getAttribute("name");
+            domTechniqueRef tec = _ExtractOpenRAVEProfile(pextra->getTechnique_array());
+            if( !!tec ) {
+              boost::shared_ptr<Joint> pjoint;
+              daeElementRef domactuator;
+              {
+                daeElementRef bact = tec->getChild("bind_actuator");
+                pjoint = _getJointFromRef(bact->getAttribute("joint").c_str(), articulated_system);
+                if (!pjoint) continue;
+              }
+              {
+                daeElementRef iact = tec->getChild("instance_actuator");
+                if(!iact) continue;
+                std::string instance_url = iact->getAttribute("url");
+                domactuator = daeURI(*iact, instance_url).getElement();
+                if(!domactuator) continue;
+                //
+                daeElement *nom_torque = domactuator->getChild("nominal_torque");
+                if ( !! nom_torque ) {
+                  if( !! pjoint->limits ) {
+                    pjoint->limits->effort = boost::lexical_cast<double>(nom_torque->getCharData());
+                    ROS_DEBUG("effort limit at joint (%s) is over written by %f",
+                              pjoint->name.c_str(), pjoint->limits->effort);
+                  }
+                }
+              }
+            }
+          }
+        }
+        //
         _ExtractRobotManipulators(articulated_system);
         _ExtractRobotAttachedSensors(articulated_system);
         return true;
@@ -895,6 +932,13 @@ protected:
             //            ROS_INFO("link %s trans: %f %f %f",linkname.c_str(),plink->visual->origin.position.x,plink->visual->origin.position.y,plink->visual->origin.position.z);
 
             // Get the geometry
+            {
+              Pose p = _poseMult(_poseMult(tParentWorldLink,tlink), plink->visual->origin);
+              ROS_WARN("geom(%s): %lf %lf %lf %lf %lf %lf %lf",
+                       linkname.c_str(),
+                        p.position.x,  p.position.y, p.position.z,
+                        p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w);
+            }
             _ExtractGeometry(pdomnode, listGeomProperties, listAxisBindings,
                              _poseMult(_poseMult(tParentWorldLink,tlink), plink->visual->origin));
 
@@ -998,7 +1042,14 @@ protected:
                     _model->joints_[pjoint->name] = pjoint;
                     vjoints[ic] = pjoint;
                 }
-
+                {
+                  ROS_WARN("%s", linkname.c_str());
+                  printPose("tParentWorldLink", tParentWorldLink);
+                  printPose("tlink", tlink);
+                  printPose("tatt", tatt);
+                  Pose p =  _poseMult(_poseMult(tParentWorldLink,tlink), tatt);
+                  printPose("tnewparent", p);
+                }
                 boost::shared_ptr<Link> pchildlink = _ExtractLink(pattfull->getLink(), pchildnode, _poseMult(_poseMult(tParentWorldLink,tlink), tatt), tatt, vdomjoints, bindings);
 
                 if (!pchildlink) {
@@ -1049,6 +1100,7 @@ protected:
                       pjoint->axis.x = ax.x;
                       pjoint->axis.y = ax.y;
                       pjoint->axis.z = ax.z;
+                      ROS_WARN_STREAM(str(boost::format("Joint %s axis %f %f %f\n")%vjoints[ic]->name%ax.x%ax.y%ax.z));
                     }
 
                     if (!motion_axis_info) {
@@ -1092,6 +1144,7 @@ protected:
                                     pjoint->type = Joint::FIXED;
                                 }
                             }
+                            ROS_INFO_STREAM(str(boost::format("There are KIN LIMITS in joint %s %f/%f\n")%pjoint->name%pjoint->limits->upper%pjoint->limits->lower));
                         }
                     }
 
@@ -1111,10 +1164,11 @@ protected:
                             }
                         }
                         else {
-                            ROS_DEBUG_STREAM(str(boost::format("There are LIMITS in joint %s ...\n")%pjoint->name));
                             double fscale = (pjoint->type == Joint::REVOLUTE) ? (M_PI/180.0f) : _GetUnitScale(pdomaxis);
                             pjoint->limits->lower = (double)pdomaxis->getLimits()->getMin()->getValue()*fscale;
                             pjoint->limits->upper = (double)pdomaxis->getLimits()->getMax()->getValue()*fscale;
+
+                            ROS_INFO_STREAM(str(boost::format("There are LIMITS in joint %s %f/%f\n")%pjoint->name%pjoint->limits->upper%pjoint->limits->lower));
                             if ( pjoint->limits->lower == 0 && pjoint->limits->upper == 0 ) {
                                 pjoint->type = Joint::FIXED;
                             }
@@ -1421,6 +1475,10 @@ protected:
                                                        _poseMult(_poseMult(_matrixFromPose(_poseInverse(_VisualRootOrigin)),
                                                                            _getNodeParentTransform(pdomnode)),
                                                                  _ExtractFullTransform(pdomnode)));
+        {
+          Pose p = _poseFromMatrix(tmnodegeom);
+          printPose("tnmodegeom", p);
+        }
         Pose tnodegeom;
         Vector3 vscale(1,1,1);
         _decompose(tmnodegeom, tnodegeom, vscale);
