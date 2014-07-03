@@ -600,6 +600,41 @@ protected:
             }
         }
 
+        // over write joint parameters by elements in instance_actuator
+        for(size_t ie = 0; ie < articulated_system->getExtra_array().getCount(); ++ie) {
+          domExtraRef pextra = articulated_system->getExtra_array()[ie];
+          if( strcmp(pextra->getType(), "attach_actuator") == 0 ) {
+            //std::string aname = pextra->getAttribute("name");
+            domTechniqueRef tec = _ExtractOpenRAVEProfile(pextra->getTechnique_array());
+            if( !!tec ) {
+              boost::shared_ptr<Joint> pjoint;
+              daeElementRef domactuator;
+              {
+                daeElementRef bact = tec->getChild("bind_actuator");
+                pjoint = _getJointFromRef(bact->getAttribute("joint").c_str(), articulated_system);
+                if (!pjoint) continue;
+              }
+              {
+                daeElementRef iact = tec->getChild("instance_actuator");
+                if(!iact) continue;
+                std::string instance_url = iact->getAttribute("url");
+                domactuator = daeURI(*iact, instance_url).getElement();
+                if(!domactuator) continue;
+                //
+                daeElement *nom_torque = domactuator->getChild("nominal_torque");
+                if ( !! nom_torque ) {
+                  if( !! pjoint->limits ) {
+                    pjoint->limits->effort = boost::lexical_cast<double>(nom_torque->getCharData());
+                    ROS_DEBUG("effort limit at joint (%s) is over written by %f",
+                              pjoint->name.c_str(), pjoint->limits->effort);
+                  }
+                }
+              }
+            }
+          }
+        }
+        //
+        _ExtractRobotAttachedActuators(articulated_system);
         _ExtractRobotManipulators(articulated_system);
         _ExtractRobotAttachedSensors(articulated_system, bindings);
         return true;
@@ -1996,6 +2031,12 @@ protected:
         }
 
         return false;
+    }
+
+    /// \brief extract the robot actuators
+    void _ExtractRobotAttachedActuators(const domArticulated_systemRef as)
+    {
+
     }
 
     /// \brief extract the robot manipulators
