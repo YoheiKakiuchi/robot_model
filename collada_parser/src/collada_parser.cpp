@@ -1038,6 +1038,11 @@ protected:
                     boost::shared_ptr<Joint> pjoint = vjoints[ic];
                     pjoint->child_link_name = pchildlink->name;
 
+#define PRINT_POSE (pname, apose) ROS_INFO(pname" pos: %f %f %f, rot: %f %f %f %f", \
+                                           tatt.position.x, tatt.position.y, tatt.position.z, \
+                                           tatt.rotation.x, tatt.rotation.y, tatt.rotation.z, tatt.rotation.w);
+
+                    PRINT_POSE("tatt", tatt);
                     //  Axes and Anchor assignment.
                     {
                       Vector3 ax(pdomaxis->getAxis()->getValue()[0],
@@ -1051,6 +1056,11 @@ protected:
                       pjoint->axis.y = ax.y;
                       pjoint->axis.z = ax.z;
                     }
+                    ROS_INFO("joint %s axis: %f %f %f -> %f %f %f", pjoint->name.c_str(),
+                             pdomaxis->getAxis()->getValue()[0],
+                             pdomaxis->getAxis()->getValue()[1],
+                             pdomaxis->getAxis()->getValue()[2]
+                             pjoint->axis.x, pjoint->axis.y, pjoint->axis.z);
 
                     if (!motion_axis_info) {
                         ROS_WARN_STREAM(str(boost::format("No motion axis info for joint %s\n")%pjoint->name));
@@ -1122,8 +1132,13 @@ protected:
                         }
                     }
 
-                    //ROS_INFO("joint %s axis: %f %f %f",pjoint->name.c_str(),pjoint->axis.x,pjoint->axis.y,pjoint->axis.z);
+                    {
+                      PRINT_POSE("tatt", tatt);
+                      Pose tempp = _poseFromMatrix(_ExtractFullTransform(pattfull->getLink()));
+                      PRINT_POSE("pfull", tempp);
+                    }
                     pjoint->parent_to_joint_origin_transform = _poseMult(tatt,_poseFromMatrix(_ExtractFullTransform(pattfull->getLink())));
+
                     if (pjoint->limits->velocity == 0.0) {
                       pjoint->limits->velocity = pjoint->type == Joint::PRISMATIC ? 0.01 : 0.5f;
                     }
