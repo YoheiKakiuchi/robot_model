@@ -598,7 +598,24 @@ protected:
                 _ExtractKinematicsModel(articulated_system->getKinematics()->getInstance_kinematics_model_array()[ik],bindings);
             }
         }
-
+        // DEUBG
+        //for(size_t it = 0; it < bindings.listAxisBindings.size(); it++) {
+        for(std::list<JointAxisBinding>::iterator it = bindings.listAxisBindings.begin(); it != bindings.listAxisBindings.end(); it++) {
+          //std::cerr << "debug: " << it << std::endl;
+          // domAxis_constraintRef pkinematicaxis;
+          // domCommon_float_or_paramRef jointvalue;
+          // ndomNodeRef visualnode;
+          // domKinematics_axis_infoRef kinematics_axis_info;
+          // domMotion_axis_infoRef motion_axis_info;
+          std::cerr <<  it->pkinematicaxis->getSid() << std::endl;
+          //bindings.listAxisBindings[it].jointvalue;
+          //bindings.listAxisBindings[it].visualnode;
+          std::cerr <<  it->kinematics_axis_info->getSid() << std::endl;
+          std::cerr <<  it->kinematics_axis_info->getName() << std::endl;
+          std::cerr <<  it->motion_axis_info->getSid() << std::endl;
+          //std::cerr <<  bindings.listAxisBindings[it].motion_axis_info.getName() << std::endl;
+        }
+        //
         _ExtractRobotAttachedActuators(articulated_system);
         _ExtractRobotManipulators(articulated_system);
         _ExtractRobotAttachedSensors(articulated_system);
