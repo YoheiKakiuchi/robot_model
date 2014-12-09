@@ -409,7 +409,7 @@ public:
     };
 
 public:
-    ColladaModelReader(boost::shared_ptr<ModelInterface> model) : _dom(NULL), _nGlobalSensorId(0), _nGlobalManipulatorId(0), _model(model) {
+    ColladaModelReader(boost::shared_ptr<ModelInterface> model, bool parse_sensor = false, bool parse_manipulator = false) : _dom(NULL), _nGlobalSensorId(0), _nGlobalManipulatorId(0), _model(model), _parse_sensor(parse_sensor), _parse_manipulator(parse_manipulator) {
         daeErrorHandler::setErrorHandler(this);
         _resourcedir = ".";
     }
@@ -600,8 +600,8 @@ protected:
         }
 
         _ExtractRobotAttachedActuators(articulated_system);
-        _ExtractRobotManipulators(articulated_system);
-        _ExtractRobotAttachedSensors(articulated_system);
+        _ExtractRobotManipulators(articulated_system, bindings);
+        _ExtractRobotAttachedSensors(articulated_system, bindings);
         return true;
     }
 
@@ -1038,7 +1038,7 @@ protected:
                     boost::shared_ptr<Joint> pjoint = vjoints[ic];
                     pjoint->child_link_name = pchildlink->name;
 
-#define PRINT_POSE(pname, apose) ROS_DEBUG(pname" pos: %f %f %f, rot: %f %f %f %f", \
+#define PRINT_POSE(pname, apose) ROS_INFO(pname" pos: %f %f %f, rot: %f %f %f %f", \
                                            apose.position.x, apose.position.y, apose.position.z, \
                                            apose.rotation.x, apose.rotation.y, apose.rotation.z, apose.rotation.w);
                     {
@@ -2048,15 +2048,69 @@ protected:
     }
 
     /// \brief extract the robot manipulators
-    void _ExtractRobotManipulators(const domArticulated_systemRef as)
+    void _ExtractRobotManipulators(const domArticulated_systemRef as, KinematicsSceneBindings& bindings)
     {
-        ROS_DEBUG("collada manipulators not supported yet");
+      //ROS_DEBUG("collada manipulators not supported yet");
+
     }
 
     /// \brief Extract Sensors attached to a Robot
-    void _ExtractRobotAttachedSensors(const domArticulated_systemRef as)
+    void _ExtractRobotAttachedSensors(const domArticulated_systemRef as, KinematicsSceneBindings& bindings)
     {
-        ROS_DEBUG("collada sensors not supported yet");
+      std::cerr << "mogemoge" << std::endl;
+      for (size_t ie = 0; ie < as->getExtra_array().getCount(); ie++) {
+        domExtraRef pextra = as->getExtra_array()[ie];
+        if( strcmp(pextra->getType(), "attach_sensor") == 0 ) {
+          std::string name = pextra->getAttribute("name");
+          std::cerr << "sensor name: " << name << std::endl;
+          if( name.size() == 0 ) {
+            name = str(boost::format("sensor%d")%_nGlobalSensorId++);
+          }
+          domTechniqueRef tec = _ExtractOpenRAVEProfile( pextra->getTechnique_array() );
+          if( !!tec ) {
+            daeElement* pframe_origin = tec->getChild("frame_origin");
+            if( !!pframe_origin ) {
+              domLinkRef pdomlink = daeSafeCast<domLink>( daeSidRef(pframe_origin->getAttribute("link"), as).resolve().elt );
+              std::string linkname = _ExtractLinkName( pdomlink );
+
+              daeElementRef instance_sensor = tec->getChild("instance_sensor");
+              if( !!instance_sensor && !!instance_sensor->hasAttribute("url") ) {
+                std::string instance_id = instance_sensor->getAttribute("id");
+                std::string instance_url = instance_sensor->getAttribute("url");
+                daeElementRef domsensor = _getElementFromUrl( daeURI(*instance_sensor, instance_url) );
+
+                if( !!domsensor->hasAttribute("type") && !!domsensor->hasAttribute("sid") ) {
+                  std::string sensortype = domsensor->getAttribute("type");
+                  Pose ttemp;
+                  ttemp = _poseFromMatrix(_ExtractFullTransformFromChildren( pframe_origin ));
+                  PRINT_POSE("sensor: ", ttemp);
+                  boost::shared_ptr<Link> plink(new Link());
+                  plink->name = name;
+                  _model->links_.insert(std::make_pair(name, plink));
+                  boost::shared_ptr<Joint> pjoint(new Joint());
+                  {
+                    std::stringstream sstrm;
+                    sstrm << name << "_fixed_joint";
+                    pjoint->name = sstrm.str();
+                  }
+                  pjoint->parent_link_name = linkname;
+                  pjoint->child_link_name  = name;
+                  pjoint->type = Joint::FIXED;
+                  pjoint->parent_to_joint_origin_transform = ttemp;
+                  _model->joints_.insert(std::make_pair(pjoint->name, pjoint));
+                } else {
+                  // error
+                }
+              } else {
+                // error
+              }
+            }
+          } else {
+            ROS_WARN("cannot create robot attached sensor %s", name.c_str());
+          }
+        }
+      }
+      //ROS_DEBUG("collada sensors not supported yet");
     }
 
     inline daeElementRef _getElementFromUrl(const daeURI &uri)
@@ -2800,18 +2854,26 @@ protected:
     boost::shared_ptr<ModelInterface> _model;
     Pose _RootOrigin;
     Pose _VisualRootOrigin;
+    bool _parse_sensor;
+    bool _parse_manipulator;
 };
 
 
-
+boost::shared_ptr<ModelInterface> parseCollada(const std::string &xml_str, const bool parse_sensor, const bool parse_manipulator)
+{
+      boost::shared_ptr<ModelInterface> model(new ModelInterface);
+      ColladaModelReader reader(model, parse_sensor, parse_manipulator);
+      if (!reader.InitFromData(xml_str))
+        model.reset();
+      return model;
+}
 
 boost::shared_ptr<ModelInterface> parseCollada(const std::string &xml_str)
 {
-    boost::shared_ptr<ModelInterface> model(new ModelInterface);
-
-    ColladaModelReader reader(model);
-    if (!reader.InitFromData(xml_str))
-        model.reset();
-    return model;
+    bool psensor = false, pmanipulator = false;
+    ros::param::get("/collada_parser/parse_sensor", psensor);
+    ros::param::get("/collada_parser/parse_manipulator", pmanipulator);
+    ROS_INFO("parse_collada %d %d", psensor, pmanipulator);
+    return parseCollada(xml_str, psensor, pmanipulator);
 }
 }
